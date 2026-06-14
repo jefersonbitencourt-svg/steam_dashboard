@@ -727,7 +727,7 @@ function renderPageOnce(name) {
 }
 
 // ============================================================
-// PAGE 1: RESUMO
+// PAGE 1: RESUMO (FIXED)
 // ============================================================
 function getResumoFiltered() {
   let d = GAMES_DATA;
@@ -759,12 +759,19 @@ function refreshResumo() {
   renderResumoCharts(d);
 }
 
+// FIX: % conquistas com fallback Realizadas/Disponiveis quando 'Conq. Percentual' está vazio
+function getConqPct(g) {
+  return g['Conq. Percentual']
+    ? g['Conq. Percentual']
+    : (g['Conq. Disponiveis'] ? (g['Conq. Realizadas']||0)/g['Conq. Disponiveis'] : 0);
+}
+
 function renderResumoKPIs(d) {
   const total = d.length;
   const jogados = d.filter(g=>g['Jogado']==='Jogado').length;
   const platinum = d.filter(g=>g['Platinado']==='Platinado').length;
   const conqGames = d.filter(g=>g['Platinado']==='Platinado'||g['Platinado']==='Não Platinado');
-  const conqPct = conqGames.length ? conqGames.reduce((s,g)=>s+(g['Conq. Percentual']||0),0)/conqGames.length : 0;
+  const conqPct = conqGames.length ? conqGames.reduce((s,g)=>s+getConqPct(g),0)/conqGames.length : 0;
   const hGames = d.filter(g=>g['Horas Steam']&&g['Horas Steam']>0);
   const totalH = hGames.reduce((s,g)=>s+g['Horas Steam'],0);
   const avgH = hGames.length ? totalH/hGames.length : 0;
@@ -861,22 +868,32 @@ function renderResumo() {
 initApp();
 
 // ============================================================
-// PAGE 2: FINANCEIRO
+// PAGE 2: FINANCEIRO (FIXED)
 // ============================================================
 let finData = GAMES_DATA;
 let chartLojaInst;
 
+// FIX: extrai o ano corretamente de "YYYY-MM-DD" ou "DD/MM/YYYY"
+function getYear(d) {
+  if(!d) return '';
+  if(typeof d === 'string' && d.includes('/')) {
+    const parts = d.split('/');
+    return parts[parts.length-1];
+  }
+  return String(d).slice(0,4);
+}
+
 function populateFinFilters() {
   const sel=(id,vals)=>{ const el=document.getElementById(id),cur=el.value; el.innerHTML='<option value="">'+el.options[0].text+'</option>'; vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.text=v;el.appendChild(o);}); el.value=cur; };
   sel('fLoja',[...new Set(GAMES_DATA.map(g=>g['Loja Compra']).filter(Boolean))].sort());
-  sel('fAnoCompra',[...new Set(GAMES_DATA.map(g=>g['Data Compra']&&g['Data Compra'].slice(0,4)).filter(Boolean))].sort());
+  sel('fAnoCompra',[...new Set(GAMES_DATA.map(g=>getYear(g['Data Compra'])).filter(Boolean))].sort());
   sel('fPublicador',[...new Set(GAMES_DATA.map(g=>g['Publicador']).filter(Boolean))].sort());
   sel('fFranquia',[...new Set(GAMES_DATA.map(g=>g['Franquia']).filter(Boolean))].sort());
 }
 function applyFinFilters() {
   const loja=document.getElementById('fLoja').value, ano=document.getElementById('fAnoCompra').value,
         pub=document.getElementById('fPublicador').value, fran=document.getElementById('fFranquia').value;
-  finData=GAMES_DATA.filter(g=>(!loja||g['Loja Compra']===loja)&&(!ano||(g['Data Compra']&&g['Data Compra'].startsWith(ano)))&&(!pub||g['Publicador']===pub)&&(!fran||g['Franquia']===fran));
+  finData=GAMES_DATA.filter(g=>(!loja||g['Loja Compra']===loja)&&(!ano||getYear(g['Data Compra'])===ano)&&(!pub||g['Publicador']===pub)&&(!fran||g['Franquia']===fran));
   updateFinUI();
 }
 function resetFinFilters() { ['fLoja','fAnoCompra','fPublicador','fFranquia'].forEach(id=>document.getElementById(id).value=''); applyFinFilters(); }
@@ -926,7 +943,7 @@ function renderTopPrice() {
 
 function renderAnoChart() {
   const byAno={};
-  finData.forEach(g=>{ const y=g['Data Compra']&&g['Data Compra'].slice(0,4); if(!y) return; if(!byAno[y]) byAno[y]={count:0,sum:0}; byAno[y].count++; byAno[y].sum+=(g['Valor Pago']||0); });
+  finData.forEach(g=>{ const y=getYear(g['Data Compra']); if(!y) return; if(!byAno[y]) byAno[y]={count:0,sum:0}; byAno[y].count++; byAno[y].sum+=(g['Valor Pago']||0); });
   const anos=Object.keys(byAno).sort();
   makeVBar('chartAnoCompra',anos,anos.map(a=>byAno[a].count),hexAlpha(PALETTE[0],0.72),null,[
     {label:'Gasto (R$)',data:anos.map(a=>byAno[a].sum.toFixed(2)),backgroundColor:hexAlpha(PALETTE[2],0.55),borderRadius:4,yAxisID:'y1'}
@@ -941,7 +958,8 @@ function renderExtrato() {
     {key:'Nome',label:'Jogo',cls:'td-name',render:r=>`<span title="${r['Nome']}">${r['Nome']}</span>`},
     {key:'Valor cheio',label:'Valor Cheio',numeric:true,render:r=>`<span style="color:var(--text-dim)">${fmtBRL(r['Valor cheio'])}</span>`},
     {key:'Valor Pago',label:'Valor Pago',numeric:true,render:r=>fmtBRL(r['Valor Pago'])},
-    {key:'Desconto',label:'Desconto',numeric:true,render:r=>r['Desconto']?`<span class="badge badge-green">-${(r['Desconto']/r['Valor cheio']*100).toFixed(0)}%</span>`:'—'},
+    // FIX: removido o "-" fixo antes do percentual, usando Math.abs para garantir sinal positivo
+    {key:'Desconto',label:'Desconto',numeric:true,render:r=>r['Desconto']?`<span class="badge badge-green">${Math.abs(r['Desconto']/r['Valor cheio']*100).toFixed(0)}%</span>`:'—'},
     {key:'Data Compra',label:'Data Compra',render:r=>fmtDate(r['Data Compra'])},
     {key:'Loja Compra',label:'Loja',render:r=>`<span class="badge badge-blue">${r['Loja Compra']||'—'}</span>`},
     {key:'Valor Pri. Sessão',label:'Preço 1ª Sessão',numeric:true,render:r=>r['Valor Pri. Sessão']?`<span style="color:var(--accent-bright)" title="Menor preço no dia que jogou pela 1ª vez">${fmtBRL(r['Valor Pri. Sessão'])}</span>`:'—'},
@@ -951,8 +969,19 @@ function renderExtrato() {
 function renderFinanceiro() { populateFinFilters(); applyFinFilters(); }
 
 // ============================================================
-// PAGE 3: INDUSTRIA
+// PAGE 3: INDUSTRIA (FIXED)
 // ============================================================
+
+// FIX: extrai o ano corretamente de "YYYY-MM-DD" ou "DD/MM/YYYY"
+function getYear(d) {
+  if(!d) return '';
+  if(typeof d === 'string' && d.includes('/')) {
+    const parts = d.split('/');
+    return parts[parts.length-1];
+  }
+  return String(d).slice(0,4);
+}
+
 function getIndustriaFiltered() {
   let d = GAMES_DATA;
   if(CF.industria.genero) d=d.filter(g=>(g['Gêneros']||'').split(',').map(x=>x.trim()).includes(CF.industria.genero));
@@ -966,50 +995,43 @@ function renderIndustriaChips() {
   document.getElementById('industFilterChips').innerHTML=chips.map(c=>`<div class="active-filter-chip" onclick="(${c.clear.toString()})()">${c.label} ✕</div>`).join('');
 }
 function refreshIndustria() { renderIndustriaChips(); renderIndustriaCharts(getIndustriaFiltered()); }
-
 function renderIndustriaCharts(d) {
   const genCount=splitMulti(d,'Gêneros');
   const topGen=topN(genCount,12);
   makeHBar('chartGeneros',topGen.map(e=>e[0]).reverse(),topGen.map(e=>e[1]).reverse(),
     topGen.map((_,i)=>hexAlpha(PALETTE[0],0.38+i*0.052)).reverse(),
     (lbl)=>{ CF.industria.genero=CF.industria.genero===lbl?null:lbl; refreshIndustria(); });
-
   const temaCount=splitMulti(d,'Temas');
   const topTema=topN(temaCount,12);
   makeHBar('chartTemas',topTema.map(e=>e[0]).reverse(),topTema.map(e=>e[1]).reverse(),
     topTema.map((_,i)=>hexAlpha(PALETTE[1],0.38+i*0.052)).reverse(),
     (lbl)=>{ CF.industria.tema=CF.industria.tema===lbl?null:lbl; refreshIndustria(); });
-
   const genHrs=splitMultiHours(d,'Gêneros'), topGenH=topN(genHrs,10);
   makeHBar('chartGenHoras',topGenH.map(e=>e[0]).reverse(),topGenH.map(e=>Math.round(e[1])).reverse(),hexAlpha(PALETTE[3],0.65));
-
   const temaHrs=splitMultiHours(d,'Temas'), topTemaH=topN(temaHrs,10);
   makeHBar('chartTemaHoras',topTemaH.map(e=>e[0]).reverse(),topTemaH.map(e=>Math.round(e[1])).reverse(),hexAlpha(PALETTE[4],0.65));
-
   // Classif indicativa
   const classif=countBy(d,'Class. Indicativa'), classifEntries=topN(classif,6);
   makeDonut('chartClassif',classifEntries.map(e=>e[0]),classifEntries.map(e=>e[1]),PALETTE);
   document.getElementById('classifLegend').innerHTML=classifEntries.map((e,i)=>`
     <div class="legend-row"><div class="legend-dot" style="background:${PALETTE[i%PALETTE.length]}"></div>
     <span>Faixa ${e[0]}</span><span class="legend-val">${e[1]}</span></div>`).join('');
-
   // Publicadores — horizontal bar, more height
   const pubCount=countBy(d,'Publicador'), topPub=topN(pubCount,14);
   makeHBar('chartPublicador',
     topPub.map(e=>e[0].length>22?e[0].slice(0,22)+'…':e[0]).reverse(),
     topPub.map(e=>e[1]).reverse(),
     hexAlpha(PALETTE[2],0.7));
-
   // Perspectiva
   const perspCount=splitMulti(d,'Perspectiva'), perspEntries=topN(perspCount,6);
   makeDonut('chartPerspectiva',perspEntries.map(e=>e[0]),perspEntries.map(e=>e[1]),PALETTE);
   document.getElementById('perspLegend').innerHTML=perspEntries.map((e,i)=>`
     <div class="legend-row"><div class="legend-dot" style="background:${PALETTE[i%PALETTE.length]}"></div>
     <span>${e[0]}</span><span class="legend-val">${e[1]}</span></div>`).join('');
-
   // Lançamento por ano
+  // FIX: usa getYear() para extrair o ano corretamente, independente do formato da data
   const lancAno={};
-  d.forEach(g=>{ if(!g['Lançamento']) return; const y=g['Lançamento'].slice(0,4); if(y>='1990') lancAno[y]=(lancAno[y]||0)+1; });
+  d.forEach(g=>{ if(!g['Lançamento']) return; const y=getYear(g['Lançamento']); if(y>='1990') lancAno[y]=(lancAno[y]||0)+1; });
   const lancAnos=Object.keys(lancAno).sort();
   makeVBar('chartLancamento',lancAnos,lancAnos.map(y=>lancAno[y]),hexAlpha(PALETTE[0],0.65));
 }
@@ -1017,7 +1039,7 @@ function renderIndustriaCharts(d) {
 function renderIndustria() { renderIndustriaChips(); renderIndustriaCharts(getIndustriaFiltered()); }
 
 // ============================================================
-// PAGE 4: GAME DETALHE
+// PAGE 4: GAME DETALHE (CORRIGIDO)
 // ============================================================
 function renderGameDetalheInit() {
   const first = GAMES_DATA.find(g=>g['Horas Steam']&&g['Horas Steam']>0)||GAMES_DATA[0];
@@ -1065,12 +1087,60 @@ function getStatusColor(s) {
     'Praticamente Negativas':'#e85c5c','Negativas':'#e85c5c'}[s]||'#8d94ad';
 }
 
+// --- NOVOS HELPERS (fixes) -----------------------------------
+
+// FIX 1: extrai o ano corretamente de "YYYY-MM-DD" ou "DD/MM/YYYY"
+function getYear(d) {
+  if(!d) return '';
+  if(typeof d === 'string' && d.includes('/')) {
+    const parts = d.split('/');
+    return parts[parts.length-1]; // último segmento = ano
+  }
+  return String(d).slice(0,4);
+}
+
+// FIX 4: diferença em dias entre duas datas (aceita "YYYY-MM-DD" ou "DD/MM/YYYY")
+function parseDateFlexible(d) {
+  if(!d) return null;
+  if(typeof d === 'string' && d.includes('/')) {
+    const [dd,mm,yyyy] = d.split('/');
+    return new Date(`${yyyy}-${mm}-${dd}`);
+  }
+  const dt = new Date(d);
+  return isNaN(dt) ? null : dt;
+}
+function diasEntre(d1, d2) {
+  const a = parseDateFlexible(d1), b = parseDateFlexible(d2);
+  if(!a || !b) return null;
+  return Math.round((b - a) / (1000*60*60*24));
+}
+function fmtDias(n) {
+  if(n==null || isNaN(n)) return '—';
+  if(n < 0) return '—';
+  if(n===0) return 'Hoje';
+  if(n===1) return '1 dia';
+  return n + ' dias';
+}
+
+// ----------------------------------------------------------------
+
 function renderGameDetail(g) {
   if(!g) return;
   const isPlatinado=g['Platinado']==='Platinado';
-  const conqPct=g['Conq. Percentual']?(g['Conq. Percentual']*100).toFixed(1):null;
+
+  // FIX 2: calcula % conquistas com fallback Realizadas/Disponiveis
+  const conqPct = g['Conq. Percentual']
+    ? (g['Conq. Percentual']*100).toFixed(1)
+    : (g['Conq. Disponiveis']
+        ? ((g['Conq. Realizadas']||0)/g['Conq. Disponiveis']*100).toFixed(1)
+        : null);
+
   const vph=(g['Valor Pago']&&g['Horas Steam']&&g['Horas Steam']>0)?g['Valor Pago']/g['Horas Steam']:null;
   const sc=getStatusColor(g['Status Steam']);
+
+  // FIX 4: tempos calculados a partir das datas
+  const tempoSemJogar = fmtDias(diasEntre(g['Última Sessão'], new Date().toISOString().slice(0,10)));
+  const tempoPriSessao = fmtDias(diasEntre(g['Data Compra'], g['Primeira Sessão']));
 
   // Class. Indicativa badge — remove "Livre" prefix
   function classifBadge(v) {
@@ -1086,7 +1156,18 @@ function renderGameDetail(g) {
     : g['Platinado']==='Nunca Jogado'?'<span class="badge badge-never">Nunca Jogado</span>'
     : '<span class="badge badge-nplat">Sem conquistas</span>';
 
-  const mc=g['Metacritic'],igbd=g['IGBD'],analise=g['Analise Steam'],rat=g['Rating'];
+  const mc=g['Metacritic'],igbd=g['IGBD'],rat=g['Rating'];
+
+  // FIX: 'Analise Steam' pode vir vazio mesmo com 'Status Steam' preenchido.
+  // Mapeia o status textual para um valor aproximado (0-1) como fallback.
+  function steamStatusToScore(s) {
+    return {'Extremamente Positivas':0.97,'Muito Positivas':0.9,'Positivas':0.75,
+      'Ligeiramente Positivas':0.65,'Praticamente Neutras':0.5,'Neutras':0.5,
+      'Praticamente Negativas':0.35,'Negativas':0.2}[s];
+  }
+  const analise = (g['Analise Steam']!=null && !isNaN(g['Analise Steam']))
+    ? g['Analise Steam']
+    : steamStatusToScore(g['Status Steam']);
 
   // Ratings HTML
   function ratingBlock(label, val, maxVal, extraLabel, color) {
@@ -1115,7 +1196,7 @@ function renderGameDetail(g) {
         <!-- AVALIAÇÕES como gráficos de rosca -->
         <div class="rating-section">
           <div class="detail-section-title" style="border:none;padding:0;margin-bottom:14px">Avaliações</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(140px,auto);gap:14px;">
             ${mc!=null?`<div style="text-align:center">
               <div style="position:relative;height:90px;overflow:hidden"><canvas id="gd_donutMC"></canvas></div>
               <div style="font-family:'Rajdhani',sans-serif;font-size:22px;font-weight:700;color:${ratingColor(mc,100)};margin-top:4px">${mc}</div>
@@ -1151,7 +1232,7 @@ function renderGameDetail(g) {
             <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap;align-items:center">
               ${platBadge}
               ${conqPct&&!isPlatinado?`<span class="badge badge-purple">${conqPct}% conquistas</span>`:''}
-              ${g['Lançamento']?`<span class="badge badge-nplat">${g['Lançamento'].slice(0,4)}</span>`:''}
+              ${g['Lançamento']?`<span class="badge badge-nplat">${getYear(g['Lançamento'])}</span>`:''}
               ${classifBadge(g['Class. Indicativa'])}
             </div>
           </div>
@@ -1194,8 +1275,8 @@ function renderGameDetail(g) {
             <div class="detail-item"><div class="detail-item-label">Horas Steam</div><div class="detail-item-value">${fmtH(g['Horas Steam'])}</div></div>
             <div class="detail-item"><div class="detail-item-label">Primeira Sessão</div><div class="detail-item-value">${fmtDate(g['Primeira Sessão'])}</div></div>
             <div class="detail-item"><div class="detail-item-label">Última Sessão</div><div class="detail-item-value">${fmtDate(g['Última Sessão'])}</div></div>
-            <div class="detail-item"><div class="detail-item-label">Tempo sem jogar</div><div class="detail-item-value">${g['Tempo Sem Jogar']||'—'}</div></div>
-            <div class="detail-item"><div class="detail-item-label">Tempo até 1ª Sessão</div><div class="detail-item-value">${g['Temp. Pri. Sessão']||'—'}</div></div>
+            <div class="detail-item"><div class="detail-item-label">Tempo sem jogar</div><div class="detail-item-value">${tempoSemJogar}</div></div>
+            <div class="detail-item"><div class="detail-item-label">Tempo até 1ª Sessão</div><div class="detail-item-value">${tempoPriSessao}</div></div>
             <div class="detail-item"><div class="detail-item-label">Resolução</div><div class="detail-item-value">${g['Resolução']||'—'}</div></div>
             <div class="detail-item" style="grid-column:span 3"><div class="detail-item-label">GPU 1ª / Última Sessão</div><div class="detail-item-value" style="font-size:11.5px">${g['GPU Pri. Sessão']||'—'} → ${g['GPU Ult. Sessão']||'—'}</div></div>
           </div>
@@ -1258,10 +1339,20 @@ function renderGameDetail(g) {
 // PAGE 5: ANALISE
 // ============================================================
 // ============================================================
-// PAGE 5 — ANALISE DA CONTA  (rebuilt from v1 approach)
+// PAGE 5 — ANALISE DA CONTA  (rebuilt from v1 approach) — FIXED
 // ============================================================
 let analiseData = GAMES_DATA;
 let _analiseSort = { key: 'Horas Steam', dir: 'desc' };
+
+// FIX: extrai o ano corretamente de "YYYY-MM-DD" ou "DD/MM/YYYY"
+function getYear(d) {
+  if(!d) return '';
+  if(typeof d === 'string' && d.includes('/')) {
+    const parts = d.split('/');
+    return parts[parts.length-1]; // último segmento = ano (DD/MM/YYYY)
+  }
+  return String(d).slice(0,4); // YYYY-MM-DD
+}
 
 function populateAnaliseFilters() {
   const sel = (id, vals, label) => {
@@ -1274,8 +1365,8 @@ function populateAnaliseFilters() {
   sel('aGenero',  [...new Set(GAMES_DATA.flatMap(g=>(g['Gêneros']||'').split(',').map(x=>x.trim()).filter(Boolean)))].sort(), 'Gênero');
   sel('aTema',    [...new Set(GAMES_DATA.flatMap(g=>(g['Temas']||'').split(',').map(x=>x.trim()).filter(Boolean)))].sort(), 'Tema');
   sel('aPublicador', [...new Set(GAMES_DATA.map(g=>g['Publicador']).filter(Boolean))].sort(), 'Publicador');
-  sel('aAnoLanc', [...new Set(GAMES_DATA.map(g=>g['Lançamento']&&g['Lançamento'].slice(0,4)).filter(Boolean))].sort().reverse(), 'Ano Lançamento');
-  sel('aAnoJogado',[...new Set(GAMES_DATA.map(g=>g['Última Sessão']&&g['Última Sessão'].slice(0,4)).filter(Boolean))].sort().reverse(), 'Ano Jogado');
+  sel('aAnoLanc', [...new Set(GAMES_DATA.map(g=>getYear(g['Lançamento'])).filter(Boolean))].sort().reverse(), 'Ano Lançamento');
+  sel('aAnoJogado',[...new Set(GAMES_DATA.map(g=>getYear(g['Última Sessão'])).filter(Boolean))].sort().reverse(), 'Ano Jogado');
 }
 
 function applyAnaliseFilters() {
@@ -1292,8 +1383,8 @@ function applyAnaliseFilters() {
     (!genero   || (g['Gêneros']||'').split(',').map(x=>x.trim()).includes(genero)) &&
     (!tema     || (g['Temas']||'').split(',').map(x=>x.trim()).includes(tema)) &&
     (!pub      || g['Publicador'] === pub) &&
-    (!anoLanc  || (g['Lançamento'] && g['Lançamento'].startsWith(anoLanc))) &&
-    (!anoJog   || (g['Última Sessão'] && g['Última Sessão'].startsWith(anoJog))) &&
+    (!anoLanc  || getYear(g['Lançamento']) === anoLanc) &&
+    (!anoJog   || getYear(g['Última Sessão']) === anoJog) &&
     (!platinado|| g['Platinado'] === platinado) &&
     (!jogado   || g['Jogado'] === jogado)
   );
@@ -1371,7 +1462,9 @@ function renderAnaliseTable() {
   const rows = sorted.map(g => {
     const vph = (g['Valor Pago'] && g['Horas Steam'] && g['Horas Steam']>0)
       ? fmtBRL(g['Valor Pago'] / g['Horas Steam']) + '/h' : '—';
-    const conqPct = g['Conq. Percentual'] ? (g['Conq. Percentual']*100).toFixed(1)+'%' : '—';
+    const conqPct = g['Conq. Percentual']
+      ? (g['Conq. Percentual']*100).toFixed(1)+'%'
+      : (g['Conq. Disponiveis'] ? ((g['Conq. Realizadas']||0)/g['Conq. Disponiveis']*100).toFixed(1)+'%' : '—');
     const platCls = g['Platinado']==='Platinado' ? 'badge-plat'
                   : g['Platinado']==='Nunca Jogado' ? 'badge-never' : 'badge-nplat';
     const scColor = {'Extremamente Positivas':'#52c98a','Muito Positivas':'#52c98a',
@@ -1390,7 +1483,7 @@ function renderAnaliseTable() {
       <td>${conqPct}</td>
       <td>${fmtBRL(g['Valor Pago'])}</td>
       <td>${vph}</td>
-      <td>${g['Lançamento'] ? g['Lançamento'].slice(0,4) : '—'}</td>
+      <td>${getYear(g['Lançamento']) || '—'}</td>
       <td><span style="font-size:11px;color:${scColor}">${g['Status Steam']||'—'}</span></td>
       <td><span class="badge ${platCls}">${g['Platinado']||'—'}</span></td>
     </tr>`;
@@ -1417,7 +1510,7 @@ let _platAnualChart, _comprJogChart;
 function renderPlatAnual() {
   const byAno = {};
   GAMES_DATA.filter(g => g['Platinado']==='Platinado' && g['Última Sessão'])
-    .forEach(g => { const y=g['Última Sessão'].slice(0,4); byAno[y]=(byAno[y]||0)+1; });
+    .forEach(g => { const y=getYear(g['Última Sessão']); if(y) byAno[y]=(byAno[y]||0)+1; });
   const anos = Object.keys(byAno).sort();
   if (_platAnualChart) _platAnualChart.destroy();
   const ctx = document.getElementById('chartPlatAnual').getContext('2d');
@@ -1433,8 +1526,10 @@ function renderPlatAnual() {
 function renderComprVsJog() {
   const byC={}, byJ={};
   GAMES_DATA.forEach(g => {
-    if (g['Data Compra']) { const y=g['Data Compra'].slice(0,4); byC[y]=(byC[y]||0)+1; }
-    if (g['Última Sessão']) { const y=g['Última Sessão'].slice(0,4); byJ[y]=(byJ[y]||0)+1; }
+    const yc = getYear(g['Data Compra']);
+    if (yc) byC[yc]=(byC[yc]||0)+1;
+    const yj = getYear(g['Última Sessão']);
+    if (yj) byJ[yj]=(byJ[yj]||0)+1;
   });
   const anos = [...new Set([...Object.keys(byC),...Object.keys(byJ)])].sort();
   if (_comprJogChart) _comprJogChart.destroy();
